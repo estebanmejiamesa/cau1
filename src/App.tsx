@@ -277,12 +277,6 @@ const TextArea = (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => {
   );
 };
 
-const Pill = ({ children }: { children: ReactNode }) => (
-  <span className="rounded-full bg-[#0f1b2e] px-2.5 py-1 text-xs text-slate-200 border border-[#2a3a52]">
-    {children}
-  </span>
-);
-
 const ImportanceCell = ({
   value,
   onChange,
