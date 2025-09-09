@@ -1,7 +1,26 @@
 {
   "compilerOptions": {
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "skipLibCheck": true
-  }
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+
+    // Opción A: si mantienes imports con extensión .tsx/.ts
+    "allowImportingTsExtensions": true
+
+    // Si prefieres NO permitir extensión .tsx en imports, borra la línea de arriba
+    // y cambia el import de `./App.tsx` a `./App` (ver paso 3).
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }
