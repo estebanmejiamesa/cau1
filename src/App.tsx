@@ -66,6 +66,9 @@ export interface AppState {
 
 /* ======================== Constantes ======================== */
 const VERSION = "CaujaralCanvas-v1";
+const STORAGE_PREFIX = "caujaral_matrix_";
+const LAST_SID_KEY = "caujaral_last_sid";
+
 const DEFAULT_CAPACIDADES: string[] = [
   "Servicio al socio",
   "Deportes",
@@ -122,7 +125,61 @@ const initialState = (sid: string): AppState => ({
   },
 });
 
-/* ======================== Utilidades ======================== */
+/* ======================== Utilidades de almacenamiento ======================== */
+const storageKey = (sid: string) => `${STORAGE_PREFIX}${sid}`;
+
+function safeLoad<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function safeSave<T>(key: string, data: T) {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {
+    // Silencioso: por ejemplo, si se excede la cuota o storage está deshabilitado
+  }
+}
+
+function loadAppStateForSID(sid: string): AppState | null {
+  const saved = safeLoad<AppState>(storageKey(sid));
+  if (!saved) return null;
+  // Migración mínima de versión si cambiara el esquema
+  const normalized: AppState = {
+    ...initialState(sid),
+    ...saved,
+    version: VERSION,
+    meta: {
+      ...saved.meta,
+      sessionId: sid,
+      lastSavedAt: saved.meta?.lastSavedAt ?? null,
+    },
+  };
+  // Asegura que todas las capacidades por defecto existan al menos una vez
+  const have = new Set(
+    (normalized.part1?.bloqueD?.capacidades ?? []).map((c) => c.capacidad)
+  );
+  DEFAULT_CAPACIDADES.forEach((cap) => {
+    if (!have.has(cap)) {
+      normalized.part1.bloqueD.capacidades.push({
+        id: newId(),
+        capacidad: cap,
+        importancia: 3,
+        nivel: 3,
+        comentario: "",
+        responsable: "",
+      });
+    }
+  });
+  return normalized;
+}
+
+/* ======================== Export util ======================== */
 function downloadFile(
   content: string,
   filename: string,
@@ -328,7 +385,6 @@ const SectionCard = ({
             </p>
           )}
         </div>
-        {/* símbolo # eliminado */}
       </div>
       <div className="p-4 md:p-6 text-slate-200">{children}</div>
     </div>
@@ -337,7 +393,7 @@ const SectionCard = ({
 
 /* ======================== App ======================== */
 export default function CaujaralCanvas() {
-  /** SID por pestaña: estable y simultáneo */
+  /** SID por pestaña: estable y simultáneo (persiste entre reloads de la misma pestaña) */
   const [sid] = useState<string>(() => {
     const KEY = "caujaral_sid";
     let s = sessionStorage.getItem(KEY);
@@ -348,9 +404,13 @@ export default function CaujaralCanvas() {
     return s;
   });
 
-  const [state, setState] = useState<AppState>(() => initialState(sid));
+  /** Estado: intenta rehidratar del localStorage usando el SID; si no, usa estado inicial */
+  const [state, setState] = useState<AppState>(() => {
+    const loaded = loadAppStateForSID(sid);
+    return loaded ?? initialState(sid);
+  });
 
-  // Smoke checks ligeros
+  // Checks ligeros en mount
   useEffect(() => {
     try {
       console.assert(state.version === VERSION, "VERSION incorrecta");
@@ -359,16 +419,22 @@ export default function CaujaralCanvas() {
         "Frases debe ser array"
       );
     } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Autosave namespaced por SID
+  /** Autosave con debounce y namespacing por SID */
   useEffect(() => {
-    const key = `caujaral_matrix_${state.meta.sessionId}`;
-    const next: AppState = {
-      ...state,
-      meta: { ...state.meta, lastSavedAt: new Date().toISOString() },
-    };
-    localStorage.setItem(key, JSON.stringify(next));
+    const key = storageKey(state.meta.sessionId);
+    const timer = setTimeout(() => {
+      const next: AppState = {
+        ...state,
+        meta: { ...state.meta, lastSavedAt: new Date().toISOString() },
+      };
+      safeSave(key, next);
+      // Guarda último SID útil por si en el futuro se quiere "continuar última sesión"
+      safeSave(LAST_SID_KEY, state.meta.sessionId as unknown as string);
+    }, 400); // debounce de 400ms
+    return () => clearTimeout(timer);
   }, [state]);
 
   /* ====== Acciones de toolbar ====== */
@@ -377,6 +443,7 @@ export default function CaujaralCanvas() {
       formatTxt(state),
       `Caujaral_Canvas_${state.meta.sessionId}.txt`
     );
+
   const handleReset = () => {
     if (
       confirm(
@@ -385,7 +452,11 @@ export default function CaujaralCanvas() {
     ) {
       const newSid = crypto.randomUUID();
       sessionStorage.setItem("caujaral_sid", newSid);
-      setState(() => initialState(newSid));
+      const fresh = initialState(newSid);
+      setState(fresh);
+      // Guardar inmediatamente la nueva sesión para evitar perder el arranque
+      safeSave(storageKey(newSid), fresh);
+      safeSave(LAST_SID_KEY, newSid as unknown as string);
     }
   };
 
